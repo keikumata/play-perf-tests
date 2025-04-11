@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    /* Basic Options */
+    "target": "es2022",
+    "module": "commonjs",
+    "lib": ["dom", "dom.iterable", "ESNext"],
+    "rootDir": "src",
+    "outDir": "dist",
+
+    /* Module Resolution Options */
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+
+    /* JSX */
+    "jsx": "react-jsx",
+
+    /* Type Checking */
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}

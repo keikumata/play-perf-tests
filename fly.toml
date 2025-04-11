@@ -1,0 +1,37 @@
+app = "play-performance-tests"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # These will be set via fly secrets
+  # PLAYHT_API_KEY = ""
+  # PLAYHT_USER_ID = ""
+
+[deploy]
+  release_command = ""
+  regions = ["iad", "sin", "syd", "fra"]
+  strategy = "immediate"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [[services.http_checks]]
+    interval = "15s"
+    grace_period = "30s"
+    method = "get"
+    path = "/"
+    protocol = "http"
+    timeout = "10s" 

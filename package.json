@@ -1,0 +1,40 @@
+{
+  "name": "performance-tests",
+  "version": "1.0.0",
+  "description": "Performance testing suite for Play.ai services",
+  "private": true,
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "npx tsc",
+    "test:agent": "node dist/agents/websocket-tester.js",
+    "test:tts": "npm run build && node dist/tts/run-parallel-tests.js mp3 parallel=5 iter=20 && node dist/tts/run-parallel-tests.js wav parallel=5 iter=20",
+    "start": "node dist/agents/websocket-tester.js",
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm typecheck"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.3",
+    "playht": "0.17.2-alpha.3",
+    "typescript": "^5.8.3",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.7",
+    "@types/ws": "^8.5.13"
+  },
+  "jest": {
+    "testTimeout": 20000,
+    "preset": "ts-jest",
+    "testPathIgnorePatterns": [
+      "<rootDir>/build",
+      "<rootDir>/iac",
+      "<rootDir>/node_modules",
+      "^(?!.*\\.test\\.ts$).*$"
+    ]
+  }
+}
