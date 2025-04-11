@@ -7,7 +7,9 @@
     "prebuild": "rm -rf dist",
     "build": "npx tsc",
     "test:agent": "node dist/agents/websocket-tester.js",
-    "test:tts": "npm run build && node dist/tts/run-parallel-tests.js mp3 parallel=5 iter=20 && node dist/tts/run-parallel-tests.js wav parallel=5 iter=20",
+    "test:tts": "npm run build && node dist/tts/run-parallel-tests.js mp3 parallel=5 iter=20 verbose && node dist/tts/run-parallel-tests.js wav parallel=5 iter=20 verbose",
+    "test:tts:mp3": "npm run build && node dist/tts/run-parallel-tests.js mp3 parallel=5 iter=20",
+    "test:tts:wav": "npm run build && node dist/tts/run-parallel-tests.js wav parallel=5 iter=20 verbose",
     "start": "node dist/agents/websocket-tester.js",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm typecheck"

@@ -127,7 +127,6 @@ class PlayHTTester {
 
         const perRequestConfig: PlayRequestConfig = {
           settings: {
-            userId: this.userId,
             experimental: {
               defaultPlayDialogToPlayDialogTurbo: true,
             },
@@ -190,6 +189,8 @@ class PlayHTTester {
       if (error.response) {
         console.error(`[${this.getPrefix()}] API Response Error:`, error.response.status);
       }
+
+      console.error(error);
 
       return {
         ttfb: -1,
