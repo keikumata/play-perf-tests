@@ -1,5 +1,6 @@
 import { performance } from 'perf_hooks';
 import * as PlayHT from 'playht';
+import { PlayRequestConfig } from 'playht';
 
 // PlayHT output format type
 type OutputFormat = 'mp3' | 'wav' | 'flac' | 'pcm';
@@ -124,13 +125,25 @@ class PlayHTTester {
 
         const startTime = performance.now();
 
+        const perRequestConfig: PlayRequestConfig = {
+          settings: {
+            userId: this.userId,
+            experimental: {
+              defaultPlayDialogToPlayDialogTurbo: true,
+            },
+          },
+        };
+
         // Start the stream
         PlayHT.stream(text, {
-          voiceEngine,
-          voiceId,
-          speed: 1,
-          outputFormat: this.outputFormat,
-        })
+            voiceEngine,
+            voiceId,
+            speed: 1,
+            outputFormat: this.outputFormat,
+          },
+          // @ts-expect-error per-request config is hidden from the public API
+          perRequestConfig,
+        )
           .then((stream) => {
             // Set up event listeners
             stream.once('data', (chunk: Buffer) => {
