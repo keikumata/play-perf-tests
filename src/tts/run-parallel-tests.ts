@@ -1,20 +1,19 @@
 import dotenv from 'dotenv';
 import { type VoiceEngine } from 'playht';
 import { PlayHTTester, type OutputFormat, type TestResults } from './playht-tester';
+import { GroqTTSTester } from './groq-tester';
 
 // Load environment variables from .env file
 dotenv.config();
+
+// Type for TTS service selection
+type TTSService = 'playht' | 'groq';
 
 async function runParallelTests() {
   // Required environment variables
   const PLAYHT_API_KEY = process.env.PLAYHT_API_KEY || '';
   const PLAYHT_USER_ID = process.env.PLAYHT_USER_ID || '';
-
-  if (!PLAYHT_API_KEY || !PLAYHT_USER_ID) {
-    console.error('Error: PLAYHT_API_KEY and PLAYHT_USER_ID environment variables must be set');
-    console.error('Create a .env file in the root directory with these values');
-    process.exit(1);
-  }
+  const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 
   // Parse command line arguments
   const args = process.argv.slice(2);
@@ -24,6 +23,7 @@ async function runParallelTests() {
   let parallelTests = 3; // Default to 3 parallel tests
   let outputFormat: OutputFormat = 'mp3'; // Default format
   let verbose = false; // Default to less verbose output for parallel tests
+  let service: TTSService = 'playht'; // Default to PlayHT
 
   for (const arg of args) {
     if (arg.startsWith('parallel=')) {
@@ -47,25 +47,47 @@ async function runParallelTests() {
       continue;
     }
 
+    if (arg === 'playht' || arg === 'groq') {
+      service = arg as TTSService;
+      continue;
+    }
+
     // Check if argument is a format
     if (arg === 'mp3' || arg === 'wav' || arg === 'flac' || arg === 'pcm') {
       outputFormat = arg as OutputFormat;
     }
   }
 
+  // Validate environment variables based on selected service
+  if (service === 'playht' && (!PLAYHT_API_KEY || !PLAYHT_USER_ID)) {
+    console.error('Error: PLAYHT_API_KEY and PLAYHT_USER_ID environment variables must be set for PlayHT');
+    console.error('Create a .env file in the root directory with these values');
+    process.exit(1);
+  } else if (service === 'groq' && !GROQ_API_KEY) {
+    console.error('Error: GROQ_API_KEY environment variable must be set for Groq');
+    console.error('Create a .env file in the root directory with this value');
+    process.exit(1);
+  }
+
   // Create timestamp for this test run
   const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
 
-  // Voice ID to test with
+  // Voice ID to test with (only for PlayHT)
   const voiceId = 's3://voice-cloning-zero-shot/42c41808-0ddb-4674-8965-024a52ad6c8e/original/manifest.json';
   const voiceEngine = 'PlayDialog';
 
-  console.log(`Running PlayHT TTS parallel performance tests with the following configuration:`);
+  console.log(`Running ${service.toUpperCase()} TTS parallel performance tests with the following configuration:`);
+  console.log(`- Service: ${service}`);
   console.log(`- Parallel Tests: ${parallelTests}`);
   console.log(`- Iterations per Test: ${iterations}`);
   console.log(`- Output Format: ${outputFormat}`);
-  console.log(`- Voice ID: ${voiceId}`);
-  console.log(`- Voice Engine: ${voiceEngine}`);
+  if (service === 'playht') {
+    console.log(`- Voice ID: ${voiceId}`);
+    console.log(`- Voice Engine: ${voiceEngine}`);
+  } else {
+    console.log(`- Voice: Arista-PlayAI`);
+    console.log(`- Model: playai-tts`);
+  }
   console.log(`- Verbose Logging: ${verbose}`);
 
   // Test texts (vary in length)
@@ -81,17 +103,27 @@ async function runParallelTests() {
     .fill(0)
     .map((_, index) => {
       const batchId = index + 1;
-      return runSingleTestBatch({
-        batchId,
-        apiKey: PLAYHT_API_KEY,
-        userId: PLAYHT_USER_ID,
-        outputFormat,
-        voiceId,
-        voiceEngine: voiceEngine as VoiceEngine,
-        texts: testTexts,
-        iterations,
-        verbose,
-      });
+      if (service === 'playht') {
+        return runSinglePlayHTTestBatch({
+          batchId,
+          apiKey: PLAYHT_API_KEY,
+          userId: PLAYHT_USER_ID,
+          outputFormat,
+          voiceId,
+          voiceEngine: voiceEngine as VoiceEngine,
+          texts: testTexts,
+          iterations,
+          verbose,
+        });
+      } else {
+        return runSingleGroqTestBatch({
+          batchId,
+          apiKey: GROQ_API_KEY,
+          texts: testTexts,
+          iterations,
+          verbose,
+        });
+      }
     });
 
   // Wait for all tests to complete
@@ -101,13 +133,13 @@ async function runParallelTests() {
   const aggregatedResults = aggregateResults(results);
 
   // Print aggregated results
-  printAggregatedResults(aggregatedResults, outputFormat);
+  printAggregatedResults(aggregatedResults, outputFormat, service);
 
   console.log(`\nAll tests completed at ${new Date().toISOString()}`);
 }
 
-// Function to run a single batch of tests
-async function runSingleTestBatch(options: {
+// Function to run a single batch of PlayHT tests
+async function runSinglePlayHTTestBatch(options: {
   batchId: number;
   apiKey: string;
   userId: string;
@@ -132,6 +164,29 @@ async function runSingleTestBatch(options: {
     text: texts,
     voiceId,
     voiceEngine: voiceEngine as 'PlayDialog',
+    iterations,
+  });
+  return results;
+}
+
+// Function to run a single batch of Groq tests
+async function runSingleGroqTestBatch(options: {
+  batchId: number;
+  apiKey: string;
+  texts: Array<string>;
+  iterations: number;
+  verbose: boolean;
+}): Promise<TestResults> {
+  const { batchId, apiKey, texts, iterations, verbose } = options;
+
+  const tester = new GroqTTSTester({
+    apiKey,
+    batchId,
+    verboseLogging: verbose,
+  });
+
+  const results = await tester.runTests({
+    text: texts,
     iterations,
   });
   return results;
@@ -183,9 +238,13 @@ function aggregateResults(results: Array<TestResults>): any {
 }
 
 // Function to print aggregated results
-function printAggregatedResults(results: any, outputFormat: string): void {
-  console.log('\n--- PlayHT TTS Parallel Performance Test Results ---');
+function printAggregatedResults(results: any, outputFormat: string, service: TTSService): void {
+  console.log(`\n--- ${service.toUpperCase()} TTS Parallel Performance Test Results ---`);
   console.log(`Total successful tests: ${results.totalTests}`);
+  if (service === 'groq') {
+    console.log(`Model: playai-tts`);
+    console.log(`Voice: Arista-PlayAI`);
+  }
   console.log(`Output Format: ${outputFormat}`);
 
   const agg = results.aggregatedMetrics;

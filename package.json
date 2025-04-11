@@ -9,7 +9,9 @@
     "test:agent": "node dist/agents/websocket-tester.js",
     "test:tts": "npm run build && node dist/tts/run-parallel-tests.js mp3 parallel=5 iter=20 verbose && node dist/tts/run-parallel-tests.js wav parallel=5 iter=20 verbose",
     "test:tts:mp3": "npm run build && node dist/tts/run-parallel-tests.js mp3 parallel=5 iter=20",
-    "test:tts:wav": "npm run build && node dist/tts/run-parallel-tests.js wav parallel=5 iter=20 verbose",
+    "test:tts:wav": "npm run build && node dist/tts/run-parallel-tests.js wav parallel=1 iter=5 verbose",
+    "test:tts:wav:groq": "npm run build && node dist/tts/run-parallel-tests.js wav groq parallel=3 iter=5 verbose",
+    "test:tts:mp3:groq": "npm run build && node dist/tts/run-parallel-tests.js mp3 groq parallel=3 iter=5 verbose",
     "start": "node dist/agents/websocket-tester.js",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm typecheck"

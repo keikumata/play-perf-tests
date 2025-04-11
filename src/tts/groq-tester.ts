@@ -1,10 +1,4 @@
 import { performance } from 'perf_hooks';
-import * as PlayHT from 'playht';
-import { PlayRequestConfig } from 'playht';
-
-// PlayHT output format type
-type OutputFormat = 'mp3' | 'wav' | 'flac' | 'pcm';
-type SupportedVoiceEngine = 'PlayDialog' | 'Play3.0-mini';
 
 // Types for our metrics
 interface TTSMetrics {
@@ -26,54 +20,26 @@ interface TestResults {
     ttfb: number;
     audioSize: number;
   };
-  batchId?: number; // Added for parallel testing
+  batchId?: number;
 }
 
-class PlayHTTester {
+class GroqTTSTester {
   private apiKey: string;
-  private userId: string;
-  private outputFormat: OutputFormat;
-  private initialized = false;
   private batchId?: number;
   private verboseLogging: boolean;
+  private baseUrl = 'https://api.groq.com/openai/v1/audio/speech';
 
   constructor(options: {
     apiKey: string;
-    userId: string;
-    outputFormat?: OutputFormat;
     batchId?: number;
     verboseLogging?: boolean;
   }) {
     this.apiKey = options.apiKey;
-    this.userId = options.userId;
-    this.outputFormat = options.outputFormat || 'mp3';
     this.batchId = options.batchId;
     this.verboseLogging = options.verboseLogging !== undefined ? options.verboseLogging : true;
 
     if (this.verboseLogging) {
       console.log(`[${this.getPrefix()}] API Key: ${this.apiKey.substring(0, 5)}...`);
-      console.log(`[${this.getPrefix()}] User ID: ${this.userId.substring(0, 5)}...`);
-      console.log(`[${this.getPrefix()}] Output Format: ${this.outputFormat}`);
-    }
-
-    // Initialize PlayHT SDK
-    try {
-      if (this.verboseLogging) {
-        console.log(`[${this.getPrefix()}] Initializing PlayHT SDK...`);
-      }
-
-      PlayHT.init({
-        apiKey: this.apiKey,
-        userId: this.userId,
-      });
-
-      this.initialized = true;
-
-      if (this.verboseLogging) {
-        console.log(`[${this.getPrefix()}] PlayHT SDK initialized successfully`);
-      }
-    } catch (error) {
-      console.error(`[${this.getPrefix()}] Failed to initialize PlayHT SDK:`, error);
     }
   }
 
@@ -89,12 +55,7 @@ class PlayHTTester {
     return sorted[Math.max(0, index)];
   }
 
-  private async runSingleTest(
-    text: string,
-    voiceId: string,
-    voiceEngine: SupportedVoiceEngine,
-    testId: number,
-  ): Promise<TTSMetrics> {
+  private async runSingleTest(text: string, testId: number): Promise<TTSMetrics> {
     if (this.verboseLogging) {
       console.log(`[${this.getPrefix()}] Running test #${testId} with text: "${text.substring(0, 30)}..."`);
     }
@@ -103,80 +64,60 @@ class PlayHTTester {
     let totalSize = 0;
 
     try {
-      if (!this.initialized) {
-        throw new Error('PlayHT SDK not initialized');
-      }
+      const startTime = performance.now();
 
-      if (this.verboseLogging) {
-        console.log(`[${this.getPrefix()}] Starting test with ${this.outputFormat} format`);
-      }
-
-      if (this.verboseLogging) {
-        console.log(`[${this.getPrefix()}] Calling PlayHT.stream()...`);
-      }
-
-      // Set up a promise that will be resolved when we get the first data event
+      // Create a promise that will be resolved when we get the response
       // or rejected if there's an error or timeout
-      const ttfbPromise = new Promise<number>((resolve, reject) => {
+      const ttfbPromise = new Promise<{ ttfb: number; size: number }>(async (resolve, reject) => {
         // Timeout after 30 seconds
         const timeout = setTimeout(() => {
-          reject(new Error('Timeout waiting for first byte'));
+          reject(new Error('Timeout waiting for response'));
         }, 30000);
 
-        const startTime = performance.now();
-
-        const perRequestConfig: PlayRequestConfig = {
-          settings: {
-            userId: this.userId,
-            experimental: {
-              defaultPlayDialogToPlayDialogTurbo: true,
+        try {
+          const response = await fetch(this.baseUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json',
             },
-          },
-        };
-
-        // Start the stream
-        PlayHT.stream(text, {
-            voiceEngine,
-            voiceId,
-            speed: 1,
-            outputFormat: this.outputFormat,
-          },
-          // @ts-expect-error per-request config is hidden from the public API
-          perRequestConfig,
-        )
-          .then((stream) => {
-            // Set up event listeners
-            stream.once('data', (chunk: Buffer) => {
-              clearTimeout(timeout);
-              ttfb = performance.now() - startTime;
-              totalSize = chunk.length;
-
-              if (this.verboseLogging) {
-                console.log(
-                  `[${this.getPrefix()}] ↳ Time to first byte: ${ttfb.toFixed(2)}ms (bytes: ${chunk.length})`,
-                );
-              }
-
-              // We got what we needed, resolve with the TTFB
-              resolve(ttfb);
-
-              // End listening and let the stream complete naturally
-              stream.removeAllListeners();
-            });
-
-            stream.once('error', (err) => {
-              clearTimeout(timeout);
-              reject(err);
-            });
-          })
-          .catch((error) => {
-            clearTimeout(timeout);
-            reject(error);
+            body: JSON.stringify({
+              model: 'playai-tts',
+              input: text,
+              voice: 'Arista-PlayAI',
+              response_format: 'wav'
+            })
           });
+
+          if (!response.ok) {
+            clearTimeout(timeout);
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          // Get the response as an array buffer
+          const buffer = await response.arrayBuffer();
+          
+          clearTimeout(timeout);
+          ttfb = performance.now() - startTime;
+          totalSize = buffer.byteLength;
+          
+          resolve({ ttfb, size: totalSize });
+        } catch (error) {
+          clearTimeout(timeout);
+          reject(error);
+        }
       });
 
-      // Wait for the first byte or an error
-      ttfb = await ttfbPromise;
+      // Wait for the response or an error
+      const result = await ttfbPromise;
+      ttfb = result.ttfb;
+      totalSize = result.size;
+
+      if (this.verboseLogging) {
+        console.log(
+          `[${this.getPrefix()}] ↳ Time to response: ${ttfb.toFixed(2)}ms (bytes: ${totalSize})`,
+        );
+      }
 
       return {
         ttfb,
@@ -204,11 +145,9 @@ class PlayHTTester {
 
   async runTests(options: {
     text: string | Array<string>;
-    voiceId: string;
-    voiceEngine: SupportedVoiceEngine;
     iterations: number;
   }): Promise<TestResults> {
-    const { voiceId, voiceEngine, iterations } = options;
+    const { iterations } = options;
     const texts = Array.isArray(options.text) ? options.text : [options.text];
 
     if (this.verboseLogging) {
@@ -227,7 +166,7 @@ class PlayHTTester {
           console.log(`[${this.getPrefix()}] Test ${i + 1}/${iterations} starting...`);
         }
 
-        const result = await this.runSingleTest(text, voiceId, voiceEngine, i + 1);
+        const result = await this.runSingleTest(text, i + 1);
 
         if (this.verboseLogging) {
           console.log(
@@ -272,9 +211,11 @@ class PlayHTTester {
   }
 
   printResults(results: TestResults): void {
-    console.log(`\n--- PlayHT TTS Performance Test Results ${this.batchId ? `(Batch ${this.batchId})` : ''} ---`);
+    console.log(`\n--- Groq TTS Performance Test Results ${this.batchId ? `(Batch ${this.batchId})` : ''} ---`);
     console.log(`Total successful tests: ${results.metrics.length}`);
-    console.log(`Output Format: ${this.outputFormat}`);
+    console.log(`Model: playai-tts`);
+    console.log(`Voice: Arista-PlayAI`);
+    console.log(`Output Format: wav`);
     console.log('\nLatency Metrics (ms):');
     console.log(`P50 TTFB: ${results.p50.ttfb.toFixed(2)}`);
     console.log(`P95 TTFB: ${results.p95.ttfb.toFixed(2)}`);
@@ -288,34 +229,27 @@ class PlayHTTester {
 // Example usage
 async function main() {
   // Load environment variables
-  const PLAYHT_API_KEY = process.env.PLAYHT_API_KEY || '';
-  const PLAYHT_USER_ID = process.env.PLAYHT_USER_ID || '';
+  const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 
-  if (!PLAYHT_API_KEY || !PLAYHT_USER_ID) {
-    console.error('Error: PlayHT API Key and User ID must be provided as environment variables');
+  if (!GROQ_API_KEY) {
+    console.error('Error: Groq API Key must be provided as environment variable');
     process.exit(1);
   }
 
-  const tester = new PlayHTTester({
-    apiKey: PLAYHT_API_KEY,
-    userId: PLAYHT_USER_ID,
+  const tester = new GroqTTSTester({
+    apiKey: GROQ_API_KEY,
   });
 
   // Test texts (vary in length)
   const testTexts = [
-    'Welcome to our PlayHT performance test.',
-    "This is a medium length sentence that we'll use to test the PlayHT TTS API performance metrics.",
+    'Welcome to our Groq performance test.',
+    "This is a medium length sentence that we'll use to test the Groq TTS API performance metrics.",
     "Here is a longer sentence that will generate more audio data. We want to measure how the API performs with different text lengths and see if there's any correlation between text length and performance metrics like TTFB or total processing time.",
   ];
-
-  // Voice ID for PlayHT
-  const voiceId = 's3://voice-cloning-zero-shot/42c41808-0ddb-4674-8965-024a52ad6c8e/original/manifest.json';
 
   // Run tests
   const results = await tester.runTests({
     text: testTexts,
-    voiceId,
-    voiceEngine: 'PlayDialog',
     iterations: 10, // Number of test iterations
   });
 
@@ -329,5 +263,5 @@ if (require.main === module) {
 }
 
 // Use export type for interfaces
-export { PlayHTTester };
-export type { TTSMetrics, TestResults, OutputFormat };
+export { GroqTTSTester };
+export type { TTSMetrics, TestResults }; 
